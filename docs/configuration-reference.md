@@ -114,18 +114,145 @@ ephemeral = true  # Required when using mem store
 
 #### Kubernetes Secret Store
 
-Stores state in a Kubernetes Secret. Ideal for running tsbridge in Kubernetes.
+Stores state in Kubernetes Secrets. Ideal for running tsbridge in Kubernetes.
 
 ```toml
 [tailscale]
 store_type = "kube"
-store_config = "tsbridge-state"  # Name of the Kubernetes Secret
+store_config = "tsbridge-state"  # Secret name prefix (optional, defaults to "tsbridge")
 ```
+
+Each service gets its own Secret with the naming pattern: `<prefix>-<service_name>`
+
+Examples:
+- With `store_config = "tsbridge-state"` and service `api`: Secret name is `tsbridge-state-api`
+- With `store_config = "myapp"` and service `postgres`: Secret name is `myapp-postgres`
+- With no `store_config` (or empty) and service `web`: Secret name is `tsbridge-web`
 
 Requirements:
 - Must run in a Kubernetes pod
-- Service account must have permissions to read/write the Secret
-- The Secret will be created automatically if it doesn't exist
+- Service account must have permissions to read/write Secrets in the namespace
+- Secrets will be created automatically if they don't exist
+
+##### Kubernetes Deployment Example
+
+Complete example with ServiceAccount, RBAC, and Deployment:
+
+```yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tsbridge
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tsbridge
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tsbridge
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tsbridge
+subjects:
+- kind: ServiceAccount
+  name: tsbridge
+  namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsbridge-config
+  namespace: default
+data:
+  tsbridge.toml: |
+    [tailscale]
+    oauth_client_id_env = "TS_OAUTH_CLIENT_ID"
+    oauth_client_secret_env = "TS_OAUTH_CLIENT_SECRET"
+    store_type = "kube"
+    store_config = "tsbridge-state"
+    default_tags = ["tag:server"]
+    
+    [global]
+    metrics_addr = ":9090"
+    
+    [[services]]
+    name = "api"
+    backend_addr = "localhost:8080"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tsbridge-oauth
+  namespace: default
+type: Opaque
+stringData:
+  TS_OAUTH_CLIENT_ID: "your-oauth-client-id"
+  TS_OAUTH_CLIENT_SECRET: "your-oauth-client-secret"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsbridge
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tsbridge
+  template:
+    metadata:
+      labels:
+        app: tsbridge
+    spec:
+      serviceAccountName: tsbridge
+      containers:
+      - name: tsbridge
+        image: unixfox/tsbridge:latest
+        args:
+        - "-config"
+        - "/etc/tsbridge/tsbridge.toml"
+        envFrom:
+        - secretRef:
+            name: tsbridge-oauth
+        ports:
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tsbridge
+          readOnly: true
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: tsbridge-config
+```
+
+**Important Notes:**
+- The ServiceAccount needs `get`, `list`, `create`, `update`, and `patch` permissions on Secrets
+- Each service defined in the config will create its own Secret (e.g., `tsbridge-state-api`)
+- Store OAuth credentials in a Kubernetes Secret and reference via environment variables
+- Use a ConfigMap for the tsbridge.toml configuration file
+- The deployment runs as non-root user 65532 for security
 
 #### AWS SSM Parameter Store
 

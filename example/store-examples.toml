@@ -34,12 +34,15 @@ tags = ["tag:server"]
 # ============================================================================
 
 # Example 3: Kubernetes Secret Store
-# Best for Kubernetes deployments - state persisted in a Secret
+# Best for Kubernetes deployments - state persisted in Secrets
 [tailscale]
 oauth_client_id_env = "TS_OAUTH_CLIENT_ID"
 oauth_client_secret_env = "TS_OAUTH_CLIENT_SECRET"
 store_type = "kube"
-store_config = "tsbridge-state"  # Name of the Kubernetes Secret
+store_config = "tsbridge-state"  # Secret name prefix (optional, defaults to "tsbridge")
+
+# Each service gets its own Secret: <prefix>-<service_name>
+# With store_config="tsbridge-state" and service "api", Secret will be "tsbridge-state-api"
 
 [[services]]
 name = "api"
@@ -104,7 +107,8 @@ tags = ["tag:server"]
 # 3. Kubernetes Store:
 #    - Must run in Kubernetes
 #    - Service account needs Secret permissions
-#    - Secret created automatically if missing
+#    - Each service gets its own Secret: <prefix>-<service_name>
+#    - Secrets created automatically if missing
 #
 # 4. AWS SSM Store:
 #    - Must have AWS credentials configured

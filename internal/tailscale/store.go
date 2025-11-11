@@ -10,6 +10,7 @@ import (
 	tserrors "github.com/jtdowney/tsbridge/internal/errors"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/store"
+	"tailscale.com/ipn/store/kubestore"
 	"tailscale.com/types/logger"
 )
 
@@ -54,17 +55,22 @@ func createStateStore(cfg config.Tailscale, serviceName string, ephemeral bool) 
 
 	case "kube":
 		// Kubernetes Secret store
-		if cfg.StoreConfig == "" {
-			return nil, tserrors.NewConfigError("store_config (Kubernetes secret name) is required when store_type is 'kube'")
+		// Each service gets its own secret named: <store_config>-<service_name>
+		// If store_config is empty, use "tsbridge" as the prefix
+		prefix := cfg.StoreConfig
+		if prefix == "" {
+			prefix = "tsbridge"
 		}
-		// Use the store.New function with "kube:" prefix
-		stateStore, err = store.New(logf, "kube:"+cfg.StoreConfig)
+		secretName := fmt.Sprintf("%s-%s", prefix, serviceName)
+		
+		// Use kubestore.New directly (like tailscale-ingress-controller)
+		stateStore, err = kubestore.New(logf, secretName)
 		if err != nil {
-			return nil, tserrors.WrapConfig(err, fmt.Sprintf("creating Kubernetes store with secret %q", cfg.StoreConfig))
+			return nil, tserrors.WrapConfig(err, fmt.Sprintf("creating Kubernetes store with secret %q", secretName))
 		}
 		slog.Info("created Kubernetes state store",
 			"service", serviceName,
-			"secret_name", cfg.StoreConfig,
+			"secret_name", secretName,
 		)
 
 	case "arn":
