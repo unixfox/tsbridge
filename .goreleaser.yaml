@@ -10,8 +10,6 @@ builds:
     binary: tsbridge
     goos:
       - linux
-      - darwin
-      - freebsd
     goarch:
       - amd64
       - arm64
@@ -32,11 +30,11 @@ archives:
 
 dockers:
   - image_templates:
-      - "ghcr.io/jtdowney/tsbridge:{{ .Tag }}-amd64"
-      - "ghcr.io/jtdowney/tsbridge:latest-amd64"
-      - "ghcr.io/jtdowney/tsbridge:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "docker.io/unixfox/tsbridge:claude-stores-{{ .Tag }}-amd64"
+      - "docker.io/unixfox/tsbridge:claude-stores-latest-amd64"
+      - "docker.io/unixfox/tsbridge:claude-stores-v{{ .Major }}.{{ .Minor }}-amd64"
       # TODO: Uncomment for 1.0.0 release
-      # - "ghcr.io/jtdowney/tsbridge:{{ .Major }}-amd64"
+      # - "docker.io/unixfox/tsbridge:claude-stores-{{ .Major }}-amd64"
     dockerfile: Dockerfile
     goos: linux
     goarch: amd64
@@ -53,11 +51,11 @@ dockers:
       - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
       - "--label=org.opencontainers.image.licenses=MIT"
   - image_templates:
-      - "ghcr.io/jtdowney/tsbridge:{{ .Tag }}-arm64"
-      - "ghcr.io/jtdowney/tsbridge:latest-arm64"
-      - "ghcr.io/jtdowney/tsbridge:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "docker.io/unixfox/tsbridge:claude-stores-{{ .Tag }}-arm64"
+      - "docker.io/unixfox/tsbridge:claude-stores-latest-arm64"
+      - "docker.io/unixfox/tsbridge:claude-stores-v{{ .Major }}.{{ .Minor }}-arm64"
       # TODO: Uncomment for 1.0.0 release
-      # - "ghcr.io/jtdowney/tsbridge:{{ .Major }}-arm64"
+      # - "docker.io/unixfox/tsbridge:claude-stores-{{ .Major }}-arm64"
     dockerfile: Dockerfile
     goos: linux
     goarch: arm64
@@ -75,23 +73,23 @@ dockers:
       - "--label=org.opencontainers.image.licenses=MIT"
 
 docker_manifests:
-  - name_template: "ghcr.io/jtdowney/tsbridge:{{ .Tag }}"
+  - name_template: "docker.io/unixfox/tsbridge:claude-stores-{{ .Tag }}"
     image_templates:
-      - "ghcr.io/jtdowney/tsbridge:{{ .Tag }}-amd64"
-      - "ghcr.io/jtdowney/tsbridge:{{ .Tag }}-arm64"
-  - name_template: "ghcr.io/jtdowney/tsbridge:v{{ .Major }}.{{ .Minor }}"
+      - "docker.io/unixfox/tsbridge:claude-stores-{{ .Tag }}-amd64"
+      - "docker.io/unixfox/tsbridge:claude-stores-{{ .Tag }}-arm64"
+  - name_template: "docker.io/unixfox/tsbridge:claude-stores-v{{ .Major }}.{{ .Minor }}"
     image_templates:
-      - "ghcr.io/jtdowney/tsbridge:v{{ .Major }}.{{ .Minor }}-amd64"
-      - "ghcr.io/jtdowney/tsbridge:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "docker.io/unixfox/tsbridge:claude-stores-v{{ .Major }}.{{ .Minor }}-amd64"
+      - "docker.io/unixfox/tsbridge:claude-stores-v{{ .Major }}.{{ .Minor }}-arm64"
   # TODO: Uncomment for 1.0.0 release
-  # - name_template: "ghcr.io/jtdowney/tsbridge:{{ .Major }}"
+  # - name_template: "docker.io/unixfox/tsbridge:claude-stores-{{ .Major }}"
   #   image_templates:
-  #     - "ghcr.io/jtdowney/tsbridge:{{ .Major }}-amd64"
-  #     - "ghcr.io/jtdowney/tsbridge:{{ .Major }}-arm64"
-  - name_template: "ghcr.io/jtdowney/tsbridge:latest"
+  #     - "docker.io/unixfox/tsbridge:claude-stores-{{ .Major }}-amd64"
+  #     - "docker.io/unixfox/tsbridge:claude-stores-{{ .Major }}-arm64"
+  - name_template: "docker.io/unixfox/tsbridge:claude-stores-latest"
     image_templates:
-      - "ghcr.io/jtdowney/tsbridge:latest-amd64"
-      - "ghcr.io/jtdowney/tsbridge:latest-arm64"
+      - "docker.io/unixfox/tsbridge:claude-stores-latest-amd64"
+      - "docker.io/unixfox/tsbridge:claude-stores-latest-arm64"
 
 checksum:
   name_template: 'checksums.txt'
@@ -99,18 +97,5 @@ checksum:
 snapshot:
   version_template: "{{ .Tag }}-SNAPSHOT-{{ .ShortCommit }}"
 
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-
 release:
-  github:
-    owner: jtdowney
-    name: tsbridge
-  draft: false
-  prerelease: auto
-  name_template: "{{ .Tag }}"
+  disable: true

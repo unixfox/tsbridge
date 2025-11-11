@@ -42,6 +42,7 @@ type Tailscale struct {
 	AuthKeyFile           string         `mapstructure:"auth_key_file"`            // File containing auth key
 	StateDir              string         `mapstructure:"state_dir"`                // Directory for Tailscale state
 	StateDirEnv           string         `mapstructure:"state_dir_env"`            // Env var containing state directory
+	StateStore            string         `mapstructure:"state_store"`              // Optional override for Tailscale state store provider
 	DefaultTags           []string       `mapstructure:"default_tags"`             // Default tags for services
 	ControlURL            string         `mapstructure:"control_url"`              // Control server URL (e.g., for Headscale)
 	OAuthPreauthorized    *bool          `mapstructure:"oauth_preauthorized"`      // Preauthorize OAuth-generated auth keys (default: true)
@@ -1016,6 +1017,7 @@ func (t Tailscale) String() string {
 	// State Directory (not sensitive)
 	b.WriteString(fmt.Sprintf("  StateDir: %s\n", t.StateDir))
 	b.WriteString(fmt.Sprintf("  StateDirEnv: %s\n", t.StateDirEnv))
+	b.WriteString(fmt.Sprintf("  StateStore: %s\n", t.StateStore))
 
 	// Default Tags (not sensitive)
 	b.WriteString(fmt.Sprintf("  DefaultTags: %v\n", t.DefaultTags))

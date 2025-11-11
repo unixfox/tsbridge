@@ -40,6 +40,7 @@ type RedactedTailscale struct {
 	AuthKeyEnv            string   `json:"auth_key_env,omitempty"`
 	AuthKeyFile           string   `json:"auth_key_file,omitempty"`
 	StateDir              string   `json:"state_dir,omitempty"`
+	StateStore            string   `json:"state_store,omitempty"`
 	DefaultTags           []string `json:"default_tags,omitempty"`
 }
 
@@ -66,6 +67,7 @@ func (c *Config) Redacted() *RedactedConfig {
 			AuthKeyEnv:            c.Tailscale.AuthKeyEnv,
 			AuthKeyFile:           c.Tailscale.AuthKeyFile,
 			StateDir:              c.Tailscale.StateDir,
+			StateStore:            c.Tailscale.StateStore,
 			DefaultTags:           c.Tailscale.DefaultTags,
 		},
 		Global:   c.Global,

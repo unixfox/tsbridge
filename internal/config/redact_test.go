@@ -74,6 +74,7 @@ func TestRedactedConfig(t *testing.T) {
 			OAuthClientSecret: "super-secret",
 			AuthKey:           "tskey-auth-xxx",
 			StateDir:          "/var/lib/tsbridge",
+			StateStore:        "mem:{service}",
 		},
 		Services: []Service{
 			{
@@ -101,6 +102,10 @@ func TestRedactedConfig(t *testing.T) {
 	if redacted.Tailscale.StateDir != cfg.Tailscale.StateDir {
 		t.Errorf("StateDir should not be redacted: got %s, want %s",
 			redacted.Tailscale.StateDir, cfg.Tailscale.StateDir)
+	}
+	if redacted.Tailscale.StateStore != cfg.Tailscale.StateStore {
+		t.Errorf("StateStore should not be redacted: got %s, want %s",
+			redacted.Tailscale.StateStore, cfg.Tailscale.StateStore)
 	}
 	if redacted.Services[0].Name != cfg.Services[0].Name {
 		t.Errorf("Service name should not be redacted: got %s, want %s",

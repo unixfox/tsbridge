@@ -63,6 +63,10 @@ auth_key_env = "TS_AUTHKEY"              # From environment variable (third prio
 state_dir = "/var/lib/tsbridge"          # Direct path
 state_dir_env = "CUSTOM_STATE_DIR"       # From environment variable
 
+# Optional state store provider (mem, arn, kube, etc.)
+# Supports {service} and {state_dir} placeholders and environment variables
+state_store = "mem:{service}"
+
 # Default tags for all services (required when using OAuth)
 default_tags = ["tag:server", "tag:proxy"]
 

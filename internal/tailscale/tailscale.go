@@ -20,6 +20,9 @@ import (
 	"github.com/jtdowney/tsbridge/internal/constants"
 	tserrors "github.com/jtdowney/tsbridge/internal/errors"
 	tsnetpkg "github.com/jtdowney/tsbridge/internal/tsnet"
+	"tailscale.com/ipn"
+	"tailscale.com/ipn/store"
+	"tailscale.com/types/logger"
 )
 
 // Server wraps a tsnet.Server with tsbridge-specific functionality
@@ -29,6 +32,8 @@ type Server struct {
 	serviceServers map[string]tsnetpkg.TSNetServer
 	// serverFactory creates new TSNetServer instances
 	serverFactory tsnetpkg.TSNetServerFactory
+	// stateStoreFactory resolves the configured state store implementation
+	stateStoreFactory func(logger.Logf, string) (ipn.StateStore, error)
 	// mu protects serviceServers map
 	mu sync.Mutex
 }
@@ -45,9 +50,10 @@ func NewServerWithFactory(cfg config.Tailscale, factory tsnetpkg.TSNetServerFact
 	}
 
 	return &Server{
-		config:         cfg,
-		serviceServers: make(map[string]tsnetpkg.TSNetServer),
-		serverFactory:  factory,
+		config:            cfg,
+		serviceServers:    make(map[string]tsnetpkg.TSNetServer),
+		serverFactory:     factory,
+		stateStoreFactory: store.New,
 	}, nil
 }
 
@@ -94,8 +100,24 @@ func (s *Server) Listen(svc config.Service, tlsMode string, funnelEnabled bool) 
 		"source", stateDirSource,
 	)
 
+	// Configure explicit state store if provided
+	var serviceStore ipn.StateStore
+	if storeArg, ok := s.resolveStateStoreArg(svc, serviceStateDir); ok {
+		storeLogger := s.newStateStoreLogger(svc.Name)
+		resolvedStore, err := s.stateStoreFactory(storeLogger, storeArg)
+		if err != nil {
+			return nil, tserrors.WrapConfig(err, fmt.Sprintf("configuring state store for service %q", svc.Name))
+		}
+		serviceStore = resolvedStore
+		serviceServer.SetStore(serviceStore)
+		slog.Debug("state store configured",
+			"service", svc.Name,
+			"provider", storeProviderName(storeArg),
+		)
+	}
+
 	// Prepare auth key based on service type and existing state
-	if err := s.prepareServiceAuth(serviceServer, svc, baseStateDir); err != nil {
+	if err := s.prepareServiceAuth(serviceServer, svc, baseStateDir, serviceStore); err != nil {
 		return nil, err
 	}
 
@@ -144,8 +166,76 @@ func (s *Server) resolveBaseStateDir() (string, string) {
 	return stateDir, stateDirSource
 }
 
+// resolveStateStoreArg evaluates the configured state store string for a service.
+// It supports placeholder replacement and environment variable expansion.
+func (s *Server) resolveStateStoreArg(svc config.Service, serviceStateDir string) (string, bool) {
+	storeSpec := strings.TrimSpace(s.config.StateStore)
+	if storeSpec == "" {
+		return "", false
+	}
+
+	storeSpec = os.ExpandEnv(storeSpec)
+	storeSpec = strings.ReplaceAll(storeSpec, "{service}", svc.Name)
+	storeSpec = strings.ReplaceAll(storeSpec, "{state_dir}", serviceStateDir)
+
+	if storeSpec == "" {
+		return "", false
+	}
+
+	if !hasStateStorePrefix(storeSpec) {
+		if strings.HasPrefix(storeSpec, "~/") || strings.HasPrefix(storeSpec, "~\\") {
+			home, err := os.UserHomeDir()
+			if err == nil {
+				storeSpec = filepath.Join(home, storeSpec[2:])
+			}
+		}
+		if !isAbsolutePath(storeSpec) {
+			storeSpec = filepath.Join(serviceStateDir, storeSpec)
+		}
+	}
+
+	storeSpec = filepath.Clean(storeSpec)
+	return storeSpec, true
+}
+
+// hasStateStorePrefix returns true if the string uses a registered store prefix or a custom scheme-like prefix.
+func hasStateStorePrefix(arg string) bool {
+	if store.HasKnownProviderPrefix(arg) {
+		return true
+	}
+	if idx := strings.Index(arg, ":"); idx > 0 {
+		slashIdx := strings.IndexAny(arg, `/\\`)
+		if slashIdx == -1 || idx < slashIdx {
+			return true
+		}
+	}
+	return false
+}
+
+// newStateStoreLogger returns a logger for state store diagnostics scoped to the service.
+func (s *Server) newStateStoreLogger(serviceName string) logger.Logf {
+	return func(format string, args ...any) {
+		msg := fmt.Sprintf(format, args...)
+		slog.Debug(msg, "service", serviceName)
+	}
+}
+
+// storeProviderName extracts a short provider label for logging purposes.
+func storeProviderName(arg string) string {
+	trimmed := strings.TrimSpace(arg)
+	if hasStateStorePrefix(trimmed) {
+		if idx := strings.Index(trimmed, ":"); idx > 0 {
+			return trimmed[:idx]
+		}
+	}
+	if isAbsolutePath(trimmed) {
+		return "file"
+	}
+	return "file-relative"
+}
+
 // prepareServiceAuth handles auth key generation/resolution based on service type and existing state.
-func (s *Server) prepareServiceAuth(serviceServer tsnetpkg.TSNetServer, svc config.Service, baseStateDir string) error {
+func (s *Server) prepareServiceAuth(serviceServer tsnetpkg.TSNetServer, svc config.Service, baseStateDir string, stateStore ipn.StateStore) error {
 	var needsAuthKey bool
 	var authKeyReason string
 
@@ -154,7 +244,10 @@ func (s *Server) prepareServiceAuth(serviceServer tsnetpkg.TSNetServer, svc conf
 		authKeyReason = "ephemeral service"
 		slog.Debug("skipping state check for ephemeral service", "service", svc.Name)
 	} else {
-		hasState := hasExistingState(baseStateDir, svc.Name)
+		hasState, err := s.serviceHasExistingState(stateStore, baseStateDir, svc.Name)
+		if err != nil {
+			return tserrors.WrapResource(err, fmt.Sprintf("checking existing state for service %q", svc.Name))
+		}
 		needsAuthKey = !hasState
 		if needsAuthKey {
 			authKeyReason = "no existing state found"
@@ -184,6 +277,48 @@ func (s *Server) prepareServiceAuth(serviceServer tsnetpkg.TSNetServer, svc conf
 		slog.Debug("using existing state, no auth key needed", "service", svc.Name)
 	}
 	return nil
+}
+
+// serviceHasExistingState checks whether persistent state already exists for the service.
+func (s *Server) serviceHasExistingState(stateStore ipn.StateStore, baseStateDir string, serviceName string) (bool, error) {
+	if stateStore != nil {
+		keysToCheck := []ipn.StateKey{
+			ipn.KnownProfilesStateKey,
+			ipn.MachineKeyStateKey,
+			ipn.LegacyGlobalDaemonStateKey,
+		}
+
+		for _, key := range keysToCheck {
+			data, err := stateStore.ReadState(key)
+			if err == nil {
+				if len(data) > 0 {
+					return true, nil
+				}
+				continue
+			}
+			if errors.Is(err, ipn.ErrStateNotExist) {
+				continue
+			}
+			return false, err
+		}
+		return false, nil
+	}
+
+	return hasExistingState(baseStateDir, serviceName), nil
+}
+
+// isAbsolutePath returns true if the path is absolute on the current platform or Windows-style paths.
+func isAbsolutePath(path string) bool {
+	if filepath.IsAbs(path) {
+		return true
+	}
+	if len(path) >= 2 && path[1] == ':' {
+		c := path[0]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+			return true
+		}
+	}
+	return strings.HasPrefix(path, `\\`)
 }
 
 // startServiceServer starts the tsnet server for a service.

@@ -16,7 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/ipn/store/mem"
+	"tailscale.com/types/logger"
 
 	"github.com/jtdowney/tsbridge/internal/config"
 	tsnet "github.com/jtdowney/tsbridge/internal/tsnet"
@@ -276,6 +279,138 @@ func TestListen(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListenConfiguresStateStore(t *testing.T) {
+	newMockServer := func() *tsnet.MockTSNetServer {
+		mockServer := tsnet.NewMockTSNetServer()
+		mockServer.StartFunc = func() error { return nil }
+		mockServer.ListenTLSFunc = func(network, addr string) (net.Listener, error) {
+			return &mockListener{addr: addr}, nil
+		}
+		mockServer.LocalClientFunc = func() (tsnet.LocalClient, error) {
+			return &tsnet.MockLocalClient{
+				StatusWithoutPeersFunc: func(ctx context.Context) (*ipnstate.Status, error) {
+					return &ipnstate.Status{
+						Self: &ipnstate.PeerStatus{
+							DNSName:      "test.tailnet.ts.net.",
+							TailscaleIPs: []netip.Addr{netip.MustParseAddr("100.64.0.1")},
+						},
+					}, nil
+				},
+			}, nil
+		}
+		return mockServer
+	}
+
+	t.Run("mem store configured", func(t *testing.T) {
+		t.Parallel()
+
+		mockServer := newMockServer()
+		factory := func(serviceName string) tsnet.TSNetServer {
+			return mockServer
+		}
+
+		tempDir := t.TempDir()
+		cfg := config.Tailscale{
+			AuthKey:    config.RedactedString("test-key"),
+			StateDir:   tempDir,
+			StateStore: "mem:{service}",
+		}
+
+		server, err := NewServerWithFactory(cfg, factory)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = server.Close() })
+
+		svc := config.Service{
+			Name:        "alpha",
+			BackendAddr: "localhost:8080",
+		}
+
+		listener, err := server.Listen(svc, "auto", false)
+		require.NoError(t, err)
+		require.NotNil(t, listener)
+		require.NotNil(t, mockServer.Store)
+
+		_, ok := mockServer.Store.(*mem.Store)
+		assert.True(t, ok, "expected mem store implementation")
+	})
+
+	t.Run("store template expands service", func(t *testing.T) {
+		t.Parallel()
+
+		mockServer := newMockServer()
+		factory := func(serviceName string) tsnet.TSNetServer {
+			return mockServer
+		}
+
+		tempDir := t.TempDir()
+		cfg := config.Tailscale{
+			AuthKey:    config.RedactedString("test-key"),
+			StateDir:   tempDir,
+			StateStore: "arn:aws:ssm:us-east-1:123456789012:parameter/tsbridge/{service}",
+		}
+
+		server, err := NewServerWithFactory(cfg, factory)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = server.Close() })
+
+		captured := ""
+		server.stateStoreFactory = func(logf logger.Logf, arg string) (ipn.StateStore, error) {
+			captured = arg
+			return mem.New(logf, arg)
+		}
+
+		svc := config.Service{
+			Name:        "web",
+			BackendAddr: "localhost:8080",
+		}
+
+		listener, err := server.Listen(svc, "auto", false)
+		require.NoError(t, err)
+		require.NotNil(t, listener)
+		assert.Equal(t,
+			"arn:aws:ssm:us-east-1:123456789012:parameter/tsbridge/web",
+			captured,
+		)
+	})
+
+	t.Run("existing store state skips auth", func(t *testing.T) {
+		t.Parallel()
+
+		mockServer := newMockServer()
+		factory := func(serviceName string) tsnet.TSNetServer {
+			return mockServer
+		}
+
+		tempDir := t.TempDir()
+		cfg := config.Tailscale{
+			StateDir:   tempDir,
+			StateStore: "mem:",
+		}
+
+		server, err := NewServerWithFactory(cfg, factory)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = server.Close() })
+
+		prepopulated, err := mem.New(nil, "")
+		require.NoError(t, err)
+		require.NoError(t, prepopulated.WriteState(ipn.MachineKeyStateKey, []byte("state")))
+
+		server.stateStoreFactory = func(logf logger.Logf, arg string) (ipn.StateStore, error) {
+			return prepopulated, nil
+		}
+
+		svc := config.Service{
+			Name:        "persist",
+			BackendAddr: "localhost:8080",
+		}
+
+		listener, err := server.Listen(svc, "auto", false)
+		require.NoError(t, err)
+		require.NotNil(t, listener)
+		assert.Empty(t, mockServer.AuthKey, "expected existing state to skip auth generation")
+	})
 }
 
 func TestListen_EphemeralServices(t *testing.T) {
@@ -576,7 +711,7 @@ func TestPrepareServiceAuth(t *testing.T) {
 			require.NoError(t, err)
 
 			// Test prepareServiceAuth
-			err = server.prepareServiceAuth(mockServer, tt.svc, tmpDir)
+			err = server.prepareServiceAuth(mockServer, tt.svc, tmpDir, nil)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -588,6 +723,24 @@ func TestPrepareServiceAuth(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("existing state in configured store", func(t *testing.T) {
+		mockServer := tsnet.NewMockTSNetServer()
+		factory := func(serviceName string) tsnet.TSNetServer {
+			return mockServer
+		}
+
+		server, err := NewServerWithFactory(config.Tailscale{}, factory)
+		require.NoError(t, err)
+
+		memStore, err := mem.New(nil, "")
+		require.NoError(t, err)
+		require.NoError(t, memStore.WriteState(ipn.MachineKeyStateKey, []byte("state")))
+
+		err = server.prepareServiceAuth(mockServer, config.Service{Name: "store-service"}, t.TempDir(), memStore)
+		require.NoError(t, err)
+		assert.Empty(t, mockServer.AuthKey)
+	})
 }
 
 func TestClose(t *testing.T) {

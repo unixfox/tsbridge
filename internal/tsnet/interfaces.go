@@ -9,6 +9,7 @@ import (
 
 	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
 	"tailscale.com/types/logger"
@@ -50,6 +51,9 @@ type TSNetServer interface {
 
 	// SetControlURL sets the control server URL.
 	SetControlURL(controlURL string)
+
+	// SetStore configures the underlying state store implementation.
+	SetStore(store ipn.StateStore)
 }
 
 // LocalClient is an interface for tailscale LocalClient operations.
@@ -225,6 +229,11 @@ func (s *RealTSNetServer) SetControlURL(controlURL string) {
 	s.ControlURL = controlURL
 }
 
+// SetStore implements TSNetServer.
+func (s *RealTSNetServer) SetStore(store ipn.StateStore) {
+	s.Store = store
+}
+
 // RealLocalClient wraps a real local.Client.
 type RealLocalClient struct {
 	lc *local.Client
@@ -247,6 +256,7 @@ type MockTSNetServer struct {
 	AuthKey   string
 	Ephemeral bool
 	Logf      logger.Logf
+	Store     ipn.StateStore
 
 	ListenFunc       func(network, addr string) (net.Listener, error)
 	ListenTLSFunc    func(network, addr string) (net.Listener, error)
@@ -369,6 +379,11 @@ func (m *MockTSNetServer) SetEphemeral(ephemeral bool) {
 // SetControlURL implements TSNetServer.
 func (m *MockTSNetServer) SetControlURL(controlURL string) {
 	// No-op for mock
+}
+
+// SetStore implements TSNetServer.
+func (m *MockTSNetServer) SetStore(store ipn.StateStore) {
+	m.Store = store
 }
 
 // MockLocalClient is a mock implementation of LocalClient for testing.
