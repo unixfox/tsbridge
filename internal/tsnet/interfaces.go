@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"reflect"
 	"time"
 
 	"tailscale.com/client/local"
@@ -41,6 +42,9 @@ type TSNetServer interface {
 
 	// SetDir sets the state directory for this server.
 	SetDir(dir string)
+
+	// SetStore sets the state store for this server.
+	SetStore(store any)
 
 	// SetAuthKey sets the auth key for this server.
 	SetAuthKey(authKey string)
@@ -210,6 +214,18 @@ func (s *RealTSNetServer) SetDir(dir string) {
 	s.Dir = dir
 }
 
+// SetStore implements TSNetServer.
+func (s *RealTSNetServer) SetStore(store any) {
+	// The tsnet.Server.Store field is typed as ipn.StateStore
+	// We accept any here in the interface to avoid forcing all callers
+	// to import the ipn package. Use reflection to set the field safely.
+	v := reflect.ValueOf(&s.Server).Elem()
+	storeField := v.FieldByName("Store")
+	if storeField.IsValid() && storeField.CanSet() {
+		storeField.Set(reflect.ValueOf(store))
+	}
+}
+
 // SetAuthKey implements TSNetServer.
 func (s *RealTSNetServer) SetAuthKey(authKey string) {
 	s.AuthKey = authKey
@@ -244,6 +260,7 @@ func (c *RealLocalClient) StatusWithoutPeers(ctx context.Context) (*ipnstate.Sta
 type MockTSNetServer struct {
 	Hostname  string
 	Dir       string
+	Store     any
 	AuthKey   string
 	Ephemeral bool
 	Logf      logger.Logf
@@ -354,6 +371,11 @@ func (m *MockTSNetServer) SetHostname(hostname string) {
 // SetDir implements TSNetServer.
 func (m *MockTSNetServer) SetDir(dir string) {
 	m.Dir = dir
+}
+
+// SetStore implements TSNetServer.
+func (m *MockTSNetServer) SetStore(store any) {
+	m.Store = store
 }
 
 // SetAuthKey implements TSNetServer.

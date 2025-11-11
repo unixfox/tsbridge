@@ -155,6 +155,8 @@ func (p *Provider) parseGlobalConfig(container *container.Summary, cfg *config.C
 		AuthKeyFile:           parser.getString("tailscale.auth_key_file"),
 		StateDir:              parser.getString("tailscale.state_dir"),
 		StateDirEnv:           parser.getString("tailscale.state_dir_env"),
+		StoreType:             parser.getString("tailscale.store_type"),
+		StoreConfig:           parser.getString("tailscale.store_config"),
 		DefaultTags:           parser.getStringSlice("tailscale.default_tags", ","),
 		ControlURL:            parser.getString("tailscale.control_url"),
 		OAuthPreauthorized:    parser.getBool("tailscale.oauth_preauthorized"),

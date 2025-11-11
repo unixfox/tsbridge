@@ -40,8 +40,10 @@ type Tailscale struct {
 	AuthKey               RedactedString `mapstructure:"auth_key"`                 // Tailscale auth key (alternative to OAuth)
 	AuthKeyEnv            string         `mapstructure:"auth_key_env"`             // Env var containing auth key
 	AuthKeyFile           string         `mapstructure:"auth_key_file"`            // File containing auth key
-	StateDir              string         `mapstructure:"state_dir"`                // Directory for Tailscale state
+	StateDir              string         `mapstructure:"state_dir"`                // Directory for Tailscale state (file store)
 	StateDirEnv           string         `mapstructure:"state_dir_env"`            // Env var containing state directory
+	StoreType             string         `mapstructure:"store_type"`               // State store type: "file" (default), "mem", "kube", "arn"
+	StoreConfig           string         `mapstructure:"store_config"`             // Store-specific configuration (e.g., kube secret name, arn value)
 	DefaultTags           []string       `mapstructure:"default_tags"`             // Default tags for services
 	ControlURL            string         `mapstructure:"control_url"`              // Control server URL (e.g., for Headscale)
 	OAuthPreauthorized    *bool          `mapstructure:"oauth_preauthorized"`      // Preauthorize OAuth-generated auth keys (default: true)
@@ -596,6 +598,11 @@ func (c *Config) Validate(provider string) error {
 		return err
 	}
 
+	// Validate store configuration
+	if err := c.validateStoreConfig(); err != nil {
+		return err
+	}
+
 	// Validate global settings
 	if err := c.validateGlobal(); err != nil {
 		return err
@@ -670,6 +677,59 @@ func (c *Config) validateOAuth() error {
 	}
 	if !hasOAuthID && hasOAuthSecret {
 		return errors.NewValidationError("OAuth client ID is required when client secret is provided")
+	}
+
+	return nil
+}
+
+// validateStoreConfig validates the store configuration
+func (c *Config) validateStoreConfig() error {
+	// If no store type is specified, default to file store
+	if c.Tailscale.StoreType == "" {
+		return nil
+	}
+
+	// Validate store type
+	validStoreTypes := map[string]bool{
+		"file": true,
+		"mem":  true,
+		"kube": true,
+		"arn":  true,
+	}
+
+	if !validStoreTypes[c.Tailscale.StoreType] {
+		return errors.NewValidationError(fmt.Sprintf("invalid store_type %q: must be one of 'file', 'mem', 'kube', or 'arn'", c.Tailscale.StoreType))
+	}
+
+	// Validate store-specific configuration
+	switch c.Tailscale.StoreType {
+	case "file":
+		// File store can use state_dir (no additional config needed)
+		// state_dir validation happens elsewhere
+	case "mem":
+		// Memory store doesn't need any additional configuration
+		if c.Tailscale.StoreConfig != "" {
+			return errors.NewValidationError("store_config is not used with store_type 'mem'")
+		}
+	case "kube":
+		// Kubernetes store requires a secret name in store_config
+		if c.Tailscale.StoreConfig == "" {
+			return errors.NewValidationError("store_config (Kubernetes secret name) is required when store_type is 'kube'")
+		}
+	case "arn":
+		// AWS store requires an ARN in store_config
+		if c.Tailscale.StoreConfig == "" {
+			return errors.NewValidationError("store_config (AWS SSM parameter ARN) is required when store_type is 'arn'")
+		}
+		// Basic ARN validation - should start with "arn:"
+		if !strings.HasPrefix(c.Tailscale.StoreConfig, "arn:") {
+			return errors.NewValidationError(fmt.Sprintf("store_config must be a valid ARN starting with 'arn:' when store_type is 'arn', got: %q", c.Tailscale.StoreConfig))
+		}
+	}
+
+	// Validate that state_dir and store_type aren't conflicting
+	if c.Tailscale.StoreType != "" && c.Tailscale.StoreType != "file" && c.Tailscale.StateDir != "" {
+		return errors.NewValidationError(fmt.Sprintf("state_dir cannot be used with store_type %q (state_dir is only for file store)", c.Tailscale.StoreType))
 	}
 
 	return nil

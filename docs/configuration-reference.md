@@ -59,9 +59,15 @@ auth_key_env = "TS_AUTHKEY"              # From environment variable (third prio
 ### Other Tailscale Options
 
 ```toml
-# State directory for tsnet data
+# State directory for tsnet data (file store only)
 state_dir = "/var/lib/tsbridge"          # Direct path
 state_dir_env = "CUSTOM_STATE_DIR"       # From environment variable
+
+# State store type (optional - defaults to "file")
+store_type = "file"  # Options: "file", "mem", "kube", "arn"
+
+# Store-specific configuration (required for non-file stores)
+store_config = ""  # See examples below
 
 # Default tags for all services (required when using OAuth)
 default_tags = ["tag:server", "tag:proxy"]
@@ -75,6 +81,81 @@ control_url = "https://headscale.example.com"
 # Breaking change: Default is now true; set to false if you require manual approval.
 oauth_preauthorized = false
 ```
+
+### State Storage Backends
+
+tsbridge supports multiple state storage backends for persisting Tailscale node state:
+
+#### File Store (Default)
+
+Stores state in local files on the filesystem. Each service gets its own subdirectory.
+
+```toml
+[tailscale]
+state_dir = "/var/lib/tsbridge"  # Base directory for all service state
+store_type = "file"              # Optional - file is the default
+```
+
+State files are stored at: `{state_dir}/{service_name}/tailscaled.state`
+
+#### Memory Store
+
+Stores state in memory only. **Only supported for ephemeral services** - state is lost when the process restarts.
+
+```toml
+[tailscale]
+store_type = "mem"
+
+[[services]]
+name = "temp-service"
+backend_addr = "localhost:8080"
+ephemeral = true  # Required when using mem store
+```
+
+#### Kubernetes Secret Store
+
+Stores state in a Kubernetes Secret. Ideal for running tsbridge in Kubernetes.
+
+```toml
+[tailscale]
+store_type = "kube"
+store_config = "tsbridge-state"  # Name of the Kubernetes Secret
+```
+
+Requirements:
+- Must run in a Kubernetes pod
+- Service account must have permissions to read/write the Secret
+- The Secret will be created automatically if it doesn't exist
+
+#### AWS SSM Parameter Store
+
+Stores state in AWS Systems Manager Parameter Store. Ideal for cloud deployments.
+
+```toml
+[tailscale]
+store_type = "arn"
+store_config = "arn:aws:ssm:us-east-1:123456789:parameter/tsbridge/state"
+```
+
+Optional: Add KMS encryption key:
+```toml
+store_config = "arn:aws:ssm:us-east-1:123456789:parameter/tsbridge/state?kmsKey=alias/my-key"
+```
+
+Requirements:
+- IAM permissions for `ssm:GetParameter` and `ssm:PutParameter`
+- If using KMS: permission for `kms:Decrypt` and `kms:Encrypt`
+- The parameter will be created automatically with Intelligent Tiering
+
+**Note**: AWS store has an 8KB size limit. If state exceeds this, new state will only be stored in memory and restarts may fail until you delete the parameter.
+
+#### Important Notes
+
+- **File store** (`store_type = "file"`): Compatible with `state_dir` setting
+- **Other stores**: Do not use `state_dir` with `mem`, `kube`, or `arn` stores
+- **Ephemeral services**: Memory store (`mem`) can only be used with `ephemeral = true`
+- **Per-service isolation**: Each service maintains its own state regardless of store type
+
 
 ### Tag Ownership and OAuth Security
 

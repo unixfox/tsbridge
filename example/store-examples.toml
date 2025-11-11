@@ -1,0 +1,113 @@
+# tsbridge Store Configuration Examples
+#
+# This file demonstrates different state storage backends for tsbridge.
+# Choose the store type that best fits your deployment environment.
+
+# Example 1: File Store (Default)
+# Stores state in local files - best for simple deployments
+[tailscale]
+oauth_client_id_env = "TS_OAUTH_CLIENT_ID"
+oauth_client_secret_env = "TS_OAUTH_CLIENT_SECRET"
+state_dir = "/var/lib/tsbridge"  # Each service gets a subdirectory
+store_type = "file"              # Optional - file is the default
+
+[[services]]
+name = "web"
+backend_addr = "localhost:8080"
+tags = ["tag:server"]
+
+# ============================================================================
+
+# Example 2: Memory Store
+# For ephemeral services only - state is lost on restart
+[tailscale]
+oauth_client_id_env = "TS_OAUTH_CLIENT_ID"
+oauth_client_secret_env = "TS_OAUTH_CLIENT_SECRET"
+store_type = "mem"
+
+[[services]]
+name = "temp-service"
+backend_addr = "localhost:8080"
+ephemeral = true  # Required with mem store
+tags = ["tag:server"]
+
+# ============================================================================
+
+# Example 3: Kubernetes Secret Store
+# Best for Kubernetes deployments - state persisted in a Secret
+[tailscale]
+oauth_client_id_env = "TS_OAUTH_CLIENT_ID"
+oauth_client_secret_env = "TS_OAUTH_CLIENT_SECRET"
+store_type = "kube"
+store_config = "tsbridge-state"  # Name of the Kubernetes Secret
+
+[[services]]
+name = "api"
+backend_addr = "localhost:8080"
+tags = ["tag:server"]
+
+# Note: Your pod's ServiceAccount needs permissions:
+# - secrets: get, create, update, patch
+
+# ============================================================================
+
+# Example 4: AWS SSM Parameter Store
+# Best for AWS deployments - state persisted in Systems Manager
+[tailscale]
+oauth_client_id_env = "TS_OAUTH_CLIENT_ID"
+oauth_client_secret_env = "TS_OAUTH_CLIENT_SECRET"
+store_type = "arn"
+store_config = "arn:aws:ssm:us-east-1:123456789012:parameter/tsbridge/state"
+
+[[services]]
+name = "backend"
+backend_addr = "localhost:8080"
+tags = ["tag:server"]
+
+# Note: IAM permissions required:
+# - ssm:GetParameter
+# - ssm:PutParameter
+
+# ============================================================================
+
+# Example 5: AWS SSM with KMS Encryption
+# Encrypts the state parameter with a KMS key
+[tailscale]
+oauth_client_id_env = "TS_OAUTH_CLIENT_ID"
+oauth_client_secret_env = "TS_OAUTH_CLIENT_SECRET"
+store_type = "arn"
+store_config = "arn:aws:ssm:us-east-1:123456789012:parameter/tsbridge/state?kmsKey=alias/tsbridge"
+
+[[services]]
+name = "secure-api"
+backend_addr = "localhost:8080"
+tags = ["tag:server"]
+
+# Note: Additional IAM permissions required:
+# - kms:Decrypt
+# - kms:Encrypt
+
+# ============================================================================
+
+# Important Notes:
+#
+# 1. File Store (default):
+#    - No additional dependencies
+#    - Works everywhere
+#    - State stored at: {state_dir}/{service_name}/tailscaled.state
+#
+# 2. Memory Store:
+#    - Only for ephemeral services
+#    - State lost on restart
+#    - No persistent storage needed
+#
+# 3. Kubernetes Store:
+#    - Must run in Kubernetes
+#    - Service account needs Secret permissions
+#    - Secret created automatically if missing
+#
+# 4. AWS SSM Store:
+#    - Must have AWS credentials configured
+#    - IAM permissions for Parameter Store required
+#    - 8KB size limit (state must stay under this)
+#    - Intelligent Tiering used automatically

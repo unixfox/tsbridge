@@ -761,6 +761,8 @@ func getDockerParsedTailscaleFields() map[string]bool {
 		"tailscale.auth_key_file":            true,
 		"tailscale.state_dir":                true,
 		"tailscale.state_dir_env":            true,
+		"tailscale.store_type":               true,
+		"tailscale.store_config":             true,
 		"tailscale.default_tags":             true,
 		"tailscale.control_url":              true,
 		"tailscale.oauth_preauthorized":      true,

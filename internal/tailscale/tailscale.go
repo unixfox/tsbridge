@@ -84,17 +84,29 @@ func (s *Server) Listen(svc config.Service, tlsMode string, funnelEnabled bool) 
 		slog.Debug("control URL set for service", "service", svc.Name, "control_url", s.config.ControlURL)
 	}
 
-	// Resolve base state directory and set service-specific path
-	baseStateDir, stateDirSource := s.resolveBaseStateDir()
-	serviceStateDir := filepath.Join(baseStateDir, svc.Name)
-	serviceServer.SetDir(serviceStateDir)
-	slog.Debug("state directory resolved for service",
-		"service", svc.Name,
-		"state_dir", serviceStateDir,
-		"source", stateDirSource,
-	)
+	// Create and set state store if configured (for non-file stores)
+	stateStore, err := createStateStore(s.config, svc.Name, svc.Ephemeral)
+	if err != nil {
+		return nil, err
+	}
+	if stateStore != nil {
+		// Use custom store (mem, kube, or arn)
+		serviceServer.SetStore(stateStore)
+		slog.Debug("custom state store configured", "service", svc.Name)
+	} else {
+		// Use file store (default) - set the directory
+		baseStateDir, stateDirSource := s.resolveBaseStateDir()
+		serviceStateDir := filepath.Join(baseStateDir, svc.Name)
+		serviceServer.SetDir(serviceStateDir)
+		slog.Debug("state directory resolved for service",
+			"service", svc.Name,
+			"state_dir", serviceStateDir,
+			"source", stateDirSource,
+		)
+	}
 
 	// Prepare auth key based on service type and existing state
+	baseStateDir, _ := s.resolveBaseStateDir()
 	if err := s.prepareServiceAuth(serviceServer, svc, baseStateDir); err != nil {
 		return nil, err
 	}
